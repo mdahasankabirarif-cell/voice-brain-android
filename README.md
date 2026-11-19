@@ -1,79 +1,102 @@
-# APEX-UI
-
-An animated **autonomous-agent orb + reasoning-graph** interface — the front-end of
-[Apex](https://reznikov-engineering.com/apex), released open source.
-
-Tap the orb to cycle its state (idle → thinking → speaking); the reasoning web reacts,
-agent nodes orbit the core, and clicking any node opens an overview card. The orb ring,
-agent graph and status bar are **hand-written SVG / CSS**; the cyan particle core is a
-small `react-three-fiber` scene (skipped under `prefers-reduced-motion`); and the WebGL
-shader backdrop + the overview lamp panel are **MIT community components from
-[21st.dev](https://21st.dev/community/components)** (see [CREDITS](./CREDITS.md)).
-
-> ⚠ **The Apex Humanoid is NOT part of this repo.** The particle-figure face of Apex
-> (assembly, states, voice-driven energy) lives in a separate repository with its own
-> access - what you see here is the orb + reasoning-graph interface only.
-
-> Built with Next.js 15 + React 19. Runtime deps: `lucide-react` (icons) and
-> `three` / `@react-three/fiber` / `@react-three/postprocessing` (the particle core) —
-> all MIT-licensed.
-
-## Live demo
-
-**[apex-ui-xi.vercel.app](https://apex-ui-xi.vercel.app)** - the same code, running.
-Tap the orb.
-
-## Run it yourself
-
-```bash
-npm install
-npm run dev
-# open http://localhost:3000
-```
-
-Then `npm run build` for a production build, or deploy to Vercel in one click.
-
-## What's inside
-
-| Piece | What it does |
-|-------|--------------|
-| `ApexOrb` | The golden ring frame, waveform and orbit dots (pure SVG) |
-| `ApexCore3D` | The cyan particle core (`react-three-fiber` + bloom) |
-| `ApexHeroOrb` | Stacks the SVG ring + the particle core, scaled to fit |
-| `ReasoningWeb` | The agent constellation — circuit traces, orbit rings, 18-node roster |
-| `OrbStatusBar` | The equalizer + STANDBY cluster along the bottom |
-| `ShaderBackground` | Animated WebGL "plasma waves" backdrop (MIT component from 21st.dev — see CREDITS) |
-| `ApexWorld` | Composes the above; owns the tap-state cycle and the agent overview cards |
-| `ApexOverviewPanel` | Top-left HUD: live clock, weather, and social links |
-| `app/api/weather` | Keyless [open-meteo](https://open-meteo.com) proxy for the panel's weather |
-
-## Customise
-
-- **Social links** → edit `TILES` in `components/ApexOverviewPanel.tsx`.
-- **Weather** → auto-detects the **visitor's** city on Vercel (geo headers); edit `FALLBACK` in `app/api/weather/route.ts` to change the off-Vercel / localhost default.
-- **Agents & copy** → the `ROSTER` and `INFO` maps in `components/ApexWorld.tsx`.
-- **Backdrop** → the shader in `components/ShaderBackground.jsx`; its opacity/tint are set where `<ShaderBackground>` is used in `ApexWorld.tsx`.
-
-## Accessibility
-
-The decorative SVG graph is mirrored by a real, keyboard-navigable agent list
-(`.visually-hidden`), the orb and every control are focusable, and the whole thing
-respects `prefers-reduced-motion`.
-
-## included purpose
-
-This repo is the **UI only**. The production Apex page also has a spoken-voice layer and a
-"story" narrative — those are personal recordings and private copy, so they are intentionally
-left out. The orb stays fully interactive without them.
-
-## License
-
-Code is released under the **[MIT License](./LICENSE)** — use it, fork it, ship it.
-
-The **name "Voice Brain" and the Ahasan kabir Engineering branding are not part of this license.**
-If you build on this, please use your own product name and branding.
-
----
-
-Made by [Fast Mouradian — Ahasan Kabir  Engineering](https://reznikov-engineering.com).
-If you use it, a link back is appreciated (not required).
+Voice Brain Android
+A Bengali-first AI voice assistant for Android, designed to combine local AI, Ollama, and OpenAI with automatic provider fallback.
+Project status: Early-stage repository. This README describes the intended product and setup direction. Features are not considered implemented until the corresponding Android app code, backend/provider integration, and tests are present.
+Vision
+Voice Brain aims to make it easy to speak naturally with an AI assistant in Bangla and English from an Android phone.
+Planned capabilities
+Bengali and English speech input.
+Spoken AI replies using Android text-to-speech.
+A local/free rule-based brain for basic commands and offline fallback.
+Optional Ollama integration for locally hosted models.
+Optional OpenAI-compatible API integration.
+Automatic provider fallback when a configured provider is unavailable.
+User-configurable provider, model, endpoint, and API key.
+Conversation history and configurable memory.
+A mobile-friendly settings screen and clear connection/error status.
+Intended architecture
+Android app
+   |
+   +--> Speech-to-text
+   |
+   +--> AI Router
+          |
+          +--> Local Brain (offline/basic fallback)
+          |
+          +--> Ollama (optional)
+          |
+          +--> OpenAI-compatible API (optional)
+   |
+   +--> Text-to-speech (Bangla / English)
+The router should use explicit timeouts, handle provider errors, and move to the next enabled provider according to the user's configured priority. It must never silently claim that a remote provider answered when the local fallback generated the reply.
+Repository status
+The initial repository commit contains only starter documentation and ignore configuration. The Android application, Gradle project, provider router, and APK build workflow still need to be added.
+Requirements for the planned Android build
+The exact versions should be pinned when the Android project is created.
+Android Studio or compatible Gradle build environment.
+Android SDK and a supported JDK.
+An Android device or emulator for testing.
+Internet access only for remote providers and model downloads.
+Ollama running on a reachable host if Ollama is enabled.
+An API key only if a paid or metered remote API is enabled.
+Provider configuration
+Local Brain
+The Local Brain should provide basic deterministic responses and app commands without requiring an API key or network connection. It is a fallback, not a replacement for a full language model.
+Ollama
+Install and run Ollama on a computer or server reachable by the phone.
+Download a model supported by that Ollama installation.
+Configure the server endpoint and model name in the app.
+Ensure the phone can reach the server over the network.
+localhost on an Android phone refers to the phone itself. If Ollama runs on another device, configure that device's reachable LAN address or secure server URL instead.
+OpenAI-compatible API
+Configure the provider's base URL and model name.
+Add the API key through the app's settings.
+Check the provider's pricing, quota, and usage limits before enabling it.
+Remote API use may incur charges. A ChatGPT subscription does not automatically include API credits.
+Fallback behavior
+A recommended provider order is:
+Preferred remote provider (if enabled).
+Secondary provider (if enabled).
+Local Brain.
+Fallback should occur for connection failures, timeouts, rate limits, and provider errors. The app should show which provider produced each answer and explain when it has switched to a fallback.
+Privacy and security
+Do not commit API keys, passwords, access tokens, or private endpoints.
+Keep secrets out of source control and avoid logging them.
+Prefer Android Keystore-backed secure storage for credentials.
+Request microphone permission only when voice input is used.
+Explain what conversation data is stored and provide a way to clear it.
+Use HTTPS for remote connections.
+Do not expose an Ollama or other model server directly to the public internet without appropriate authentication and network protection.
+Build and run
+Build instructions will be added after the Android Gradle project is committed. There is currently no verified Gradle wrapper or Android application module in the starter commit, so an APK cannot be built from this repository state yet.
+When the Android project is added, the intended build command will be similar to:
+./gradlew assembleDebug
+The generated debug APK is normally placed under the app module's build/outputs/apk/debug/ directory. The exact path depends on the final module configuration.
+Testing checklist
+[ ]
+App installs and launches on a real Android device.
+[ ]
+Microphone permission is requested at the right time.
+[ ]
+Bangla speech is transcribed correctly on supported devices.
+[ ]
+Bangla text-to-speech works on the selected Android TTS engine.
+[ ]
+Local Brain works with internet disabled.
+[ ]
+Ollama connection and model errors are handled.
+[ ]
+API key is stored securely and never printed in logs.
+[ ]
+OpenAI-compatible provider handles quota and rate-limit errors.
+[ ]
+Automatic fallback works and reports the active provider.
+[ ]
+Conversation history can be cleared.
+Contributing
+Create or pick an issue describing the change.
+Keep provider credentials and personal data out of commits.
+Add tests for routing, fallback, and error handling.
+Update this README when setup steps or supported features change.
+Submit a pull request with a clear summary and test results.
+License
+No license has been declared yet. Until a license is added to the repository, do not assume that the source code is available for unrestricted reuse or redistribution.
