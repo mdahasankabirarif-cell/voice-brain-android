@@ -1,0 +1,65 @@
+Voice Brain — free, local-first AI voice agent in a dynamic space matrix
+=====================================================================
+
+  voice-brain/            the web app  →  ./start.sh  (http://localhost:8080)
+  voice-brain-android/    the Android project (build.sh → the APK)
+  voice-brain.apk         the installable app (v1.2.0, Android 7.0+)
+
+Install the APK
+---------------
+  1. copy voice-brain.apk to the phone
+  2. tap it → allow installs from that source
+  3. open "Voice Brain" → grant microphone access
+
+  adb install -r voice-brain.apk        (if you have USB debugging on)
+
+The command centre
+------------------
+  The ◉ button in the top bar (or the D key) opens a full-screen deck: one
+  glowing orb, a live reasoning web of the space, an OVERVIEW roster of the
+  agents and a strip of live counters. It speaks the same language as the
+  rest of the app, and every row in the roster really does the thing it
+  says.
+
+The mission console
+-------------------
+  OVERVIEW (the ◉ button) opens a console with seven tabs:
+
+    Overview      every worker and every role you built
+    Sectors       the whole business on one board — command, research,
+                  memory, content, growth, community, operations, finance,
+                  engineering, analytics, CRM, calendar
+    Roles         build a permanent role: a voice, a sector, the tools it
+                  may touch, a schedule and its OWN API key + endpoint
+    Flows         link nodes (tool / worker / task) into one job
+    Social        connect a platform, compose, schedule, publish
+    Automations   the control room for timers and triggers
+    Events        one live stream of everything that happened
+
+  Keys stay on the device, and a role's key travels with that role's calls.
+
+Speak your language
+-------------------
+  The interface itself speaks 16 languages (English, বাংলা, हिन्दी, Español,
+  Français, Deutsch, Português, Italiano, Русский, العربية, Türkçe, Bahasa
+  Indonesia, 日本語, 한국어, 中文, اردو). The button at the top (AUTO / EN / BN)
+  switches it; in AUTO the interface follows the language you just spoke.
+
+  The free built-in brain understands বাংলা and हिन्दी commands too:
+      তিনটি মিউজ তৈরি করো        → three muses
+      একটি তারা-ধ্রুব তৈরি করো   → a constellation
+      ম্যাট্রিক্স পরিষ্কার করো    → clear the matrix
+      জুম ইন                     → zoom in
+      নোভা আর কোরকে সংযুক্ত করো  → link two entities
+      মনে রাখো আমার প্রিয় রং সবুজ → remember a fact
+
+What to check if something looks wrong
+--------------------------------------
+  * the app shows a welcome first, then asks for the microphone
+  * tap ⚙ (top right) → "Runtime diagnostics" prints the WebView version,
+    recogniser/TTS/microphone state, entity and tool counts, JS errors
+  * adb logcat -s VoiceBrain:V chromium:E AndroidRuntime:E
+
+The APK ships a bundle of the web app (one classic script, Chrome 61 target)
+so it runs on old Android System WebViews; the web app in voice-brain/ runs
+as ES modules in a modern browser.
