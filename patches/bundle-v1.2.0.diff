@@ -1,0 +1,355 @@
+--- a/assets/www/js/bundle.js
++++ b/assets/www/js/bundle.js
+@@ -286,7 +286,14 @@
+         // auto = the interface follows the language you speak
+         "ui.reducedMotion": false,
+         "ui.soundEnabled": true,
+-        "ui.verbose": false
++        "ui.verbose": false,
++        // ── Translation (Hy-MT3) ───────────────────────────── /* hy-mt3-translation */
++        "translate.enabled": false,
++        "translate.endpoint": "http://localhost:11434/v1",
++        "translate.model": "hf.co/tencent/Hy-MT3-1.8B-GGUF:Q4_K_M",
++        "translate.replyInBangla": true,
++        "translate.timeout": 20,
++        "translate.glossary": "মিউজ=muse, মিউজে=muse, স্পার্ক=spark, নোভা=Nova, কোর=Core, ম্যাট্রিক্স=matrix, ব্রেইন=Brain"
+       };
+       OPTION_SCHEMA = [
+         {
+@@ -397,6 +404,17 @@
+           ]
+         },
+         {
++          group: "Translation",
++          items: [
++            { key: "translate.enabled", label: "Bangla → English pivot", type: "switch", desc: "Bangla requests are translated to English with Hy-MT3 before the model sees them, and the answer is translated back. Known commands stay instant and local." },
++            { key: "translate.endpoint", label: "Translator endpoint", type: "text", desc: "OpenAI-compatible server running Hy-MT3 (Ollama, llama.cpp, LM Studio). On a phone use your computer's LAN IP, not localhost." },
++            { key: "translate.model", label: "Translator model", type: "text", desc: "Ollama: hf.co/tencent/Hy-MT3-1.8B-GGUF:Q4_K_M. llama.cpp ignores the name." },
++            { key: "translate.replyInBangla", label: "Reply in Bangla", type: "switch", desc: "Off = keep the English reply and speak it with an English voice (saves one translation)." },
++            { key: "translate.timeout", label: "Translator timeout (s)", type: "number", min: 3, max: 120, step: 1 },
++            { key: "translate.glossary", label: "Glossary", type: "textarea", desc: "bangla=english pairs, comma separated. Keeps names of your entities intact." }
++          ]
++        },
++        {
+           group: "Interface",
+           items: [
+             { key: "ui.lang", label: "Interface language", type: "uilang", desc: "auto = the interface follows the language you just spoke. A code = the interface stays in that language. Languages without a full catalogue fall back to English." },
+@@ -10860,6 +10878,233 @@
+     }
+   });
+ 
++  // ../voice-brain/js/core/translate.js /* hy-mt3-translation */
++  var translator, ENGLISH, BANGLA_RE;
++  var init_translate = __esm({
++    "../voice-brain/js/core/translate.js"() {
++      init_options();
++      ({ translator, ENGLISH, BANGLA_RE } = (() => {
++        // voice-brain/js/core/translate.js
++        //
++        // Bangla ⇄ English pivot for the model path, powered by Tencent Hy-MT3-1.8B
++        // (GGUF, Apache-2.0) running on any OpenAI-compatible server — Ollama,
++        // llama.cpp `llama-server`, LM Studio.
++        //
++        //   Bangla speech ─▶ Hy-MT3 ─▶ English ─▶ brain.provider (tools, reasoning)
++        //                                              │
++        //   Bangla voice ◀─ Hy-MT3 ◀─ English reply ◀──┘
++        //
++        // Small chat models reason and call tools far better in English than in
++        // Bangla, so only the model path is pivoted. Known commands that the local
++        // NLU already understands never come through here.
++
++
++        const BANGLA_RE = /[\u0980-\u09FF]/;
++        const BANGLA_ALL = /[\u0980-\u09FF]/g;
++        const LETTER_ALL = /\p{L}/gu;
++
++        const ENGLISH = { code: "en-US", language: "en", name: "English", confidence: 1, pivot: true };
++
++        const DEFAULTS = {
++          "translate.enabled": false,
++          "translate.endpoint": "http://localhost:11434/v1",
++          "translate.model": "hf.co/tencent/Hy-MT3-1.8B-GGUF:Q4_K_M",
++          "translate.replyInBangla": true,
++          "translate.timeout": 20,
++          "translate.glossary": "মিউজ=muse, মিউজে=muse, স্পার্ক=spark, নোভা=Nova, কোর=Core, ম্যাট্রিক্স=matrix, ব্রেইন=Brain"
++        };
++
++        const MAX_INPUT = 2000;
++        const CACHE_LIMIT = 64;
++
++        function opt(key) {
++          const v = options && typeof options.get === "function" ? options.get(key) : undefined;
++          return v === undefined || v === null || v === "" ? DEFAULTS[key] : v;
++        }
++
++        /** Share of letters that are Bangla script, 0‥1. */
++        function banglaRatio(text) {
++          const s = String(text || "");
++          const letters = (s.match(LETTER_ALL) || []).length;
++          if (!letters) return 0;
++          return (s.match(BANGLA_ALL) || []).length / letters;
++        }
++
++        function normaliseBase(url) {
++          let base = String(url || "").trim().replace(/\/+$/, "");
++          if (!base) base = DEFAULTS["translate.endpoint"];
++          base = base.replace(/\/chat\/completions$/, "");
++          if (!/\/v\d+$/.test(base)) base += "/v1";
++          return base;
++        }
++
++        /** "মিউজ=muse, কোর=Core" or one pair per line → [[src, dst], …] */
++        function parseGlossary(raw) {
++          return String(raw || "")
++            .split(/[,\n;]/)
++            .map((p) => p.split("=").map((s) => s.trim()))
++            .filter((p) => p.length === 2 && p[0] && p[1]);
++        }
++
++        const TARGET_NAME = { en: "English", bn: "Bengali" };
++
++        /** Prompt templates from the Hy-MT3 model card (no system prompt). */
++        function buildPrompt(text, target, glossary = []) {
++          const lang = TARGET_NAME[target] || target;
++          // Only the terms that actually occur, so the prompt stays short.
++          const src = String(text);
++          const pairs = glossary
++            .map(([a, b]) => (target === "en" ? [a, b] : [b, a]))
++            .filter(([a]) => src.toLowerCase().includes(a.toLowerCase()));
++          const head = pairs.length
++            ? "Reference the following translations:\n" + pairs.map(([a, b]) => `${a} translates to ${b}`).join("\n") + "\n\n"
++            : "";
++          return `${head}Translate the following text into ${lang}. Note that you should only output the translated result without any additional explanation:\n\n${src}`;
++        }
++
++        function cleanOutput(raw) {
++          let s = String(raw || "");
++          s = s.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<\/?think>/gi, "");
++          s = s.trim();
++          s = s.replace(/^(translation|translated text|english|bengali|bangla)\s*[:：]\s*/i, "");
++          s = s.replace(/^অনুবাদ\s*[:：]\s*/, "");
++          const q = s.match(/^["“'‘「](.*)["”'’」]$/s);
++          if (q) s = q[1];
++          return s.trim();
++        }
++
++        /** Reject outputs that are obviously not a translation. */
++        function looksValid(input, output, target) {
++          if (!output) return false;
++          if (output.length > Math.max(40, input.length * 4)) return false;
++          const ratio = banglaRatio(output);
++          if (target === "en" && ratio > 0.3) return false;
++          if (target === "bn" && ratio < 0.3) return false;
++          return true;
++        }
++
++        class Translator {
++          constructor() {
++            this.cache = new Map();
++            this.fetch = (...a) => globalThis.fetch(...a);
++            this.stats = { calls: 0, hits: 0, failures: 0, lastMs: 0 };
++          }
++
++          enabled() {
++            return opt("translate.enabled") === true || opt("translate.enabled") === "true";
++          }
++
++          config() {
++            return {
++              base: normaliseBase(opt("translate.endpoint")),
++              model: String(opt("translate.model")),
++              timeout: Math.max(3, Number(opt("translate.timeout")) || 20) * 1000,
++              replyInBangla: opt("translate.replyInBangla") !== false && opt("translate.replyInBangla") !== "false",
++              glossary: parseGlossary(opt("translate.glossary"))
++            };
++          }
++
++          /** True when the server answers /models. Never throws. */
++          async available() {
++            const { base, timeout } = this.config();
++            try {
++              const res = await this._timed(`${base}/models`, { method: "GET" }, Math.min(timeout, 4000));
++              return res.ok;
++            } catch {
++              return false;
++            }
++          }
++
++          /** Pivot when enabled, the request goes to a real model, and the user spoke Bangla. */
++          shouldPivot(utterance, language, providerId = "") {
++            if (!this.enabled()) return false;
++            if (providerId === "local") return false;
++            const lang = language && (language.language || String(language.code || "").split("-")[0]);
++            if (lang === "bn") return true;
++            return banglaRatio(utterance) >= 0.3;
++          }
++
++          async _timed(url, init, ms) {
++            const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
++            const timer = ctrl ? setTimeout(() => ctrl.abort(), ms) : null;
++            try {
++              return await this.fetch(url, ctrl ? { ...init, signal: ctrl.signal } : init);
++            } catch (err) {
++              if (err && err.name === "AbortError") throw new Error(`translation timed out after ${Math.round(ms / 1000)}s`);
++              throw err;
++            } finally {
++              if (timer) clearTimeout(timer);
++            }
++          }
++
++          /**
++           * Translate `text` into `target` ("en" | "bn"). Throws on failure so the
++           * caller decides the fallback; the brain falls back to the original text.
++           */
++          async translate(text, target = "en") {
++            const input = String(text || "").trim().slice(0, MAX_INPUT);
++            if (!input) return "";
++            const key = `${target}\u0000${input}`;
++            if (this.cache.has(key)) {
++              const hit = this.cache.get(key);
++              this.cache.delete(key);
++              this.cache.set(key, hit);
++              this.stats.hits++;
++              return hit;
++            }
++            const { base, model, timeout, glossary } = this.config();
++            const body = {
++              model,
++              messages: [{ role: "user", content: buildPrompt(input, target, glossary) }],
++              // Model-card sampling; a cooler temperature keeps commands literal.
++              temperature: 0.3,
++              top_p: 0.6,
++              top_k: 20,
++              repetition_penalty: 1.05,
++              repeat_penalty: 1.05,
++              max_tokens: Math.min(2048, Math.max(64, input.length * 3)),
++              stream: false
++            };
++            const t0 = Date.now();
++            this.stats.calls++;
++            try {
++              const res = await this._timed(
++                `${base}/chat/completions`,
++                { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
++                timeout
++              );
++              if (!res.ok) throw new Error(`translation server answered ${res.status}`);
++              const data = await res.json();
++              const raw = data && data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : "";
++              const out = cleanOutput(raw);
++              if (!looksValid(input, out, target)) throw new Error("translation looked wrong");
++              this.stats.lastMs = Date.now() - t0;
++              this.cache.set(key, out);
++              if (this.cache.size > CACHE_LIMIT) this.cache.delete(this.cache.keys().next().value);
++              return out;
++            } catch (err) {
++              this.stats.failures++;
++              throw err;
++            }
++          }
++
++          toEnglish(text) {
++            return this.translate(text, "en");
++          }
++
++          /** Back to Bangla; text that is already Bangla is returned unchanged. */
++          async toBangla(text) {
++            if (banglaRatio(text) >= 0.3) return String(text || "");
++            return this.translate(text, "bn");
++          }
++        }
++
++        const translator = new Translator();
++        return { translator, ENGLISH, BANGLA_RE };
++      })());
++    }
++  });
++
+   // ../voice-brain/js/core/brain.js
+   var brain_exports = {};
+   __export(brain_exports, {
+@@ -10916,6 +11161,7 @@
+       init_tokens();
+       init_lang();
+       init_i18n();
++      init_translate();
+       HISTORY_LIMIT2 = 14;
+       RULE_ALIASES = {
+         "auto connect": "auto-connect",
+@@ -11006,6 +11252,13 @@
+             }
+             this.push("user", utterance);
+             this.push("assistant", result.reply);
++            if (result.translated) {
++              const n = this.history.length;
++              if (n >= 2) {
++                this.history[n - 2].en = result.translated.utterance;
++                this.history[n - 1].en = result.translated.reply;
++              }
++            }
+             bus.emit(EV.BRAIN_REPLY, { text: result.reply, toolCalls: result.toolCalls, source });
+             return result;
+           } catch (err) {
+@@ -11374,9 +11627,24 @@
+           let maxSteps = Math.max(1, Number(options.get("brain.maxSteps")) || 4);
+           if (agent && agent.maxSteps) maxSteps = Math.max(1, Number(agent.maxSteps) || maxSteps);
+           const history = agent ? agent.history || [] : this.history;
++          let pivot = null;
++          let modelUtterance = utterance;
++          let modelLanguage = language;
++          if (!forceLocal && translator.shouldPivot(utterance, language, provider.id)) {
++            try {
++              modelUtterance = await translator.toEnglish(utterance);
++              modelLanguage = ENGLISH;
++              pivot = { utterance: modelUtterance };
++              say(`Hy-MT3 · bn→en “${modelUtterance}”`, "info");
++            } catch (err) {
++              const why = String((err == null ? void 0 : err.message) || err);
++              say(`translation failed: ${why} — sending the Bangla as-is`, "warn");
++              bus.emit(EV.ACTIVITY, { tag: "brain", text: `Translator unavailable (${why}) — sent the Bangla as-is.` });
++            }
++          }
+           const messages = [
+-            ...history.slice(-8).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content || "" })),
+-            { role: "user", content: utterance }
++            ...history.slice(-8).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: (pivot && m.en) || m.content || "" })),
++            { role: "user", content: modelUtterance }
+           ];
+           let toolCalls = [];
+           let lastText = "";
+@@ -11394,7 +11662,7 @@
+                 registry: scope,
+                 model,
+                 temperature,
+-                language,
++                language: modelLanguage,
+                 creds,
+                 toolChoice: shared.toolChoice,
+                 maxTokens: shared.maxTokens,
+@@ -11467,7 +11735,25 @@
+           }
+           if (!lastText) lastText = "I am not sure what to do with that.";
+           if (lastText.length < 2) lastText = "I could not make sense of that.";
+-          return { reply: lastText, toolCalls, provider: provider.id, usage };
++          let translated = null;
++          if (pivot) {
++            translated = { utterance: pivot.utterance, reply: lastText, engine: "hy-mt3" };
++            if (translator.config().replyInBangla) {
++              try {
++                lastText = await translator.toBangla(lastText);
++                say("Hy-MT3 · en→bn reply", "info");
++              } catch (err) {
++                const why = String((err == null ? void 0 : err.message) || err);
++                say(`reply translation failed: ${why} — answering in English`, "warn");
++                this.language = ENGLISH;
++                bus.emit("brain:language", ENGLISH);
++              }
++            } else {
++              this.language = ENGLISH;
++              bus.emit("brain:language", ENGLISH);
++            }
++          }
++          return { reply: lastText, toolCalls, provider: provider.id, usage, translated };
+         },
+         /** Provider status for the header chips. */
+         async status() {
