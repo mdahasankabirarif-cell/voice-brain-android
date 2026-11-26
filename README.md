@@ -58,6 +58,14 @@ Preferred remote provider (if enabled).
 Secondary provider (if enabled).
 Local Brain.
 Fallback should occur for connection failures, timeouts, rate limits, and provider errors. The app should show which provider produced each answer and explain when it has switched to a fallback.
+Bangla to English translation step (Hy-MT3)
+Optional: Bangla requests that go to a real model are first translated to English with Tencent Hy-MT3-1.8B (GGUF, Apache 2.0). The English answer is then translated back to Bangla. Known commands stay instant and local.
+Run the model: ollama run hf.co/tencent/Hy-MT3-1.8B-GGUF:Q4_K_M (or: llama-server -hf tencent/Hy-MT3-1.8B-GGUF:Q4_K_M --host 0.0.0.0 --port 8081).
+Enable it in Settings > Translation and set the endpoint to your PC's LAN IP, not localhost.
+If the translator is down, the Bangla is sent unchanged. If the back-translation fails, the reply is spoken in English.
+Each translated turn adds roughly 1-2 s for the request and a few seconds for the reply on CPU.
+Code: voice-brain/js/core/translate.js. Patch for the shipped bundle: patches/apply-to-bundle.py. Tests: node --test tests/.
+Details: docs/hy-mt3-translation.md
 Privacy and security
 Do not commit API keys, passwords, access tokens, or private endpoints.
 Keep secrets out of source control and avoid logging them.
